@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, ContextManager, Dict, Iterator, List, Optional, Union
 
-from test_driver.logger import rootlog
+from test_driver.logger import rootlog, testlog
 from test_driver.machine import Machine, NixStartScript, retry
 from test_driver.polling_condition import PollingCondition
 from test_driver.vlan import VLan
@@ -92,10 +92,12 @@ class Driver:
             self.race_timer.cancel()
             for machine in self.machines:
                 machine.release()
+        testlog.close()
 
     def subtest(self, name: str) -> Iterator[None]:
         """Group logs under a given test name"""
-        with rootlog.nested("subtest: " + name):
+        # with rootlog.nested("subtest: " + name):
+        with testlog.subtest(name):
             try:
                 yield
                 return True

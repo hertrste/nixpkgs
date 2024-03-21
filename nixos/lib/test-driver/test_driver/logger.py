@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterator
 from xml.sax.saxutils import XMLGenerator
 
 from colorama import Fore, Style
+from junit_xml import TestCase, TestSuite
 
 
 class Logger:
@@ -56,9 +57,11 @@ class Logger:
 
     def error(self, *args, **kwargs) -> None:  # type: ignore
         self.log(*args, **kwargs)
+        testlog.error(args[0] + "\n")
         sys.exit(1)
 
     def log(self, message: str, attributes: Dict[str, str] = {}) -> None:
+        testlog.log(message + "\n")
         self._eprint(self.maybe_prefix(message, attributes))
         self.drain_log_queue()
         self.log_line(message, attributes)
@@ -105,3 +108,55 @@ class Logger:
 
 
 rootlog = Logger()
+
+
+class TestCaseState:
+    def __init__(self) -> None:
+        self.stdout = ""
+        self.stderr = ""
+        self.failure = False
+        self.skipped = False
+        self.time = float(0)
+
+
+class TestLog:
+    def __init__(self) -> None:
+        self.tests: dict[str, TestCaseState] = {"main": TestCaseState()}
+        self.currentSubtest: str = "main"
+        self.logfile = os.environ.get("LOGFILE_JUNIT", "/dev/null")
+
+    def close(self) -> None:
+        with open(self.logfile, "w") as f:
+            test_cases = []
+            for name, test_case_state in self.tests.items():
+                tc = TestCase(
+                    name,
+                    stdout=test_case_state.stdout,
+                    stderr=test_case_state.stderr,
+                )
+                if test_case_state.failure:
+                    tc.add_failure_info("Test Case failed")
+
+                test_cases.append(tc)
+            ts = TestSuite("my test suite", test_cases)
+            f.write(TestSuite.to_xml_string([ts]))
+
+    @contextmanager
+    def subtest(self, name: str) -> Iterator[None]:
+        self.currentSubtest = name
+        self.tests[name] = TestCaseState()
+        tic = time.time()
+        yield
+        toc = time.time()
+        self.tests[name].time = toc - tic
+        self.currentSubtest = "main"
+
+    def log(self, line: str) -> None:
+        self.tests[self.currentSubtest].stdout += line
+
+    def error(self, line: str) -> None:
+        self.tests[self.currentSubtest].stderr += line
+        self.tests[self.currentSubtest].failure = True
+
+
+testlog = TestLog()
