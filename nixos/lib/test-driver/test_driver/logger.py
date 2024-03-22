@@ -12,6 +12,37 @@ from xml.sax.xmlreader import AttributesImpl
 from colorama import Fore, Style
 
 
+class BaseLogger:
+    def __init__(self) -> None:
+        self._print_serial_logs = True
+        self.logger = Logger()
+
+    def set_logging_type(self, log_type: str) -> None:
+        if log_type == "junit-xml":
+            self.logger = JunitXMLLogger()  # type: ignore
+        else:
+            self.logger = Logger()  # type: ignore
+
+    def info(self, *args, **kwargs) -> None:  # type: ignore
+        self.logger.info(*args, **kwargs)
+
+    def warning(self, *args, **kwargs) -> None:  # type: ignore
+        self.logger.warning(*args, **kwargs)
+
+    def error(self, *args, **kwargs) -> None:  # type: ignore
+        self.logger.error(*args, **kwargs)
+
+    @contextmanager
+    def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
+        return self.logger.nested(message, attributes)
+
+    def log(self, message: str, attributes: Dict[str, str] = {}) -> None:
+        self.logger.log(message, attributes)
+
+    def log_serial(self, message: str, machine: str) -> None:
+        self.logger.log_serial(message, machine)
+
+
 class Logger:
     def __init__(self) -> None:
         self.logfile = os.environ.get("LOGFILE", "/dev/null")
@@ -79,7 +110,6 @@ class Logger:
         except Empty:
             pass
 
-    @contextmanager
     def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
         self._eprint(
             self.maybe_prefix(
@@ -102,4 +132,27 @@ class Logger:
         self.xml.endElement("nest")
 
 
-rootlog = Logger()
+class JunitXMLLogger:
+    def __init__(self) -> None:
+        pass
+
+    def info(self, *args, **kwargs) -> None:  # type: ignore
+        pass
+
+    def warning(self, *args, **kwargs) -> None:  # type: ignore
+        pass
+
+    def error(self, *args, **kwargs) -> None:  # type: ignore
+        pass
+
+    def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
+        yield
+
+    def log(self, message: str, attributes: Dict[str, str] = {}) -> None:
+        pass
+
+    def log_serial(self, message: str, machine: str) -> None:
+        pass
+
+
+rootlog: BaseLogger = BaseLogger()

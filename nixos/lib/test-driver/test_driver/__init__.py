@@ -77,6 +77,11 @@ def main() -> None:
         help="vlans to span by the driver",
     )
     arg_parser.add_argument(
+        "--junit-xml",
+        action="store_true",
+        help="Replace default logging with a junit-xml test report",
+    )
+    arg_parser.add_argument(
         "--global-timeout",
         type=int,
         metavar="GLOBAL_TIMEOUT",
@@ -101,6 +106,9 @@ def main() -> None:
     )
 
     args = arg_parser.parse_args()
+
+    if args.junit_xml:
+        rootlog.set_logging_type("junit-xml")
 
     if not args.keep_vm_state:
         rootlog.info("Machine state will be reset. To keep it, pass --keep-vm-state")
