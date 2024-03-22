@@ -36,6 +36,10 @@ class BaseLogger:
     def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
         return self.logger.nested(message, attributes)
 
+    @contextmanager
+    def subtest(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
+        return self.logger.subtest(message, attributes)
+
     def log(self, message: str, attributes: Dict[str, str] = {}) -> None:
         self.logger.log(message, attributes)
 
@@ -110,6 +114,9 @@ class Logger:
         except Empty:
             pass
 
+    def subtest(self, name: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
+        return self.nested("subtest: " + name, attributes)
+
     def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
         self._eprint(
             self.maybe_prefix(
@@ -146,6 +153,9 @@ class JunitXMLLogger:
         pass
 
     def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
+        yield
+
+    def subtest(self, name: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
         yield
 
     def log(self, message: str, attributes: Dict[str, str] = {}) -> None:
