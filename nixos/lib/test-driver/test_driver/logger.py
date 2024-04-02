@@ -1,3 +1,4 @@
+import atexit
 import codecs
 import os
 import sys
@@ -10,12 +11,27 @@ from xml.sax.saxutils import XMLGenerator
 from xml.sax.xmlreader import AttributesImpl
 
 from colorama import Fore, Style
+from junit_xml import TestCase, TestSuite
+
+
+def _eprint(*args: object, **kwargs: Any) -> None:
+    print(*args, file=sys.stderr, **kwargs)
+
+
+def maybe_prefix(message: str, attributes: Dict[str, str]) -> str:
+    if "machine" in attributes:
+        return f"{attributes['machine']}: {message}"
+    return message
 
 
 class BaseLogger:
     def __init__(self) -> None:
         self._print_serial_logs = True
         self.logger = Logger()
+        atexit.register(self.close)
+
+    def close(self) -> None:
+        self.logger.close()
 
     def set_logging_type(self, log_type: str) -> None:
         if log_type == "junit-xml":
@@ -59,10 +75,6 @@ class Logger:
 
         self._print_serial_logs = True
 
-    @staticmethod
-    def _eprint(*args: object, **kwargs: Any) -> None:
-        print(*args, file=sys.stderr, **kwargs)
-
     def close(self) -> None:
         self.xml.endElement("logfile")
         self.xml.endDocument()
@@ -70,11 +82,6 @@ class Logger:
 
     def sanitise(self, message: str) -> str:
         return "".join(ch for ch in message if unicodedata.category(ch)[0] != "C")
-
-    def maybe_prefix(self, message: str, attributes: Dict[str, str]) -> str:
-        if "machine" in attributes:
-            return f"{attributes['machine']}: {message}"
-        return message
 
     def log_line(self, message: str, attributes: Dict[str, str]) -> None:
         self.xml.startElement("line", attrs=AttributesImpl(attributes))
@@ -92,14 +99,14 @@ class Logger:
         sys.exit(1)
 
     def log(self, message: str, attributes: Dict[str, str] = {}) -> None:
-        self._eprint(self.maybe_prefix(message, attributes))
+        _eprint(maybe_prefix(message, attributes))
         self.drain_log_queue()
         self.log_line(message, attributes)
 
     def log_serial(self, message: str, machine: str) -> None:
         self.enqueue({"msg": message, "machine": machine, "type": "serial"})
         if self._print_serial_logs:
-            self._eprint(Style.DIM + f"{machine} # {message}" + Style.RESET_ALL)
+            _eprint(Style.DIM + f"{machine} # {message}" + Style.RESET_ALL)
 
     def enqueue(self, item: Dict[str, str]) -> None:
         self.queue.put(item)
@@ -118,8 +125,8 @@ class Logger:
         return self.nested("subtest: " + name, attributes)
 
     def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
-        self._eprint(
-            self.maybe_prefix(
+        _eprint(
+            maybe_prefix(
                 Style.BRIGHT + Fore.GREEN + message + Style.RESET_ALL, attributes
             )
         )
@@ -139,30 +146,77 @@ class Logger:
         self.xml.endElement("nest")
 
 
+class TestCaseState:
+    def __init__(self) -> None:
+        self.stdout = ""
+        self.stderr = ""
+        self.failure = False
+
+
 class JunitXMLLogger:
     def __init__(self) -> None:
-        pass
+        # Everything will be accounted to the main test unless there is some
+        # subtest active
+        self.tests: dict[str, TestCaseState] = {"main": TestCaseState()}
+        self.currentSubtest: str = "main"
+        self.logfile = os.environ.get("LOGFILE", "/dev/null")
+
+    def close(self) -> None:
+        with open(self.logfile, "w") as f:
+            test_cases = []
+            for name, test_case_state in self.tests.items():
+                tc = TestCase(
+                    name,
+                    stdout=test_case_state.stdout,
+                    stderr=test_case_state.stderr,
+                )
+                if test_case_state.failure:
+                    tc.add_failure_info("Test Case failed")
+
+                test_cases.append(tc)
+            ts = TestSuite("NixOS Integration Test", test_cases)
+            f.write(TestSuite.to_xml_string([ts]))
+
+    def cur_test(self) -> TestCaseState:
+        return self.tests[self.currentSubtest]
+
+    def log_to_test(self, message: str) -> None:
+        self.cur_test().stdout += message + "\n"
 
     def info(self, *args, **kwargs) -> None:  # type: ignore
-        pass
+        self.log(*args)
 
     def warning(self, *args, **kwargs) -> None:  # type: ignore
-        pass
+        self.log(*args)
 
     def error(self, *args, **kwargs) -> None:  # type: ignore
-        pass
+        _eprint(*args, **kwargs)
+        self.cur_test().stderr += args[0] + "\n"
+        self.cur_test().failure = True
 
     def nested(self, message: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
+        _eprint(
+            maybe_prefix(
+                Style.BRIGHT + Fore.GREEN + message + Style.RESET_ALL, attributes
+            )
+        )
+        self.log_to_test(message)
         yield
 
     def subtest(self, name: str, attributes: Dict[str, str] = {}) -> Iterator[None]:
+        old_test = self.currentSubtest
+        self.currentSubtest = name
+        self.tests.setdefault(name, TestCaseState())
         yield
+        self.currentSubtest = old_test
 
     def log(self, message: str, attributes: Dict[str, str] = {}) -> None:
-        pass
+        _eprint(maybe_prefix(message, attributes))
+        self.log_to_test(message)
 
     def log_serial(self, message: str, machine: str) -> None:
-        pass
+        _eprint(Style.DIM + f"{machine} # {message}" + Style.RESET_ALL)
+        self.log_to_test(message)
 
 
 rootlog: BaseLogger = BaseLogger()
